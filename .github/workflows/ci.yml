@@ -19,9 +19,9 @@ jobs:
       matrix:
         include:
           - os: "windows-latest"
-            ghc-version: "9.2.1"
+            ghc-version: "9.2.4"
           - os: "ubuntu-latest"
-            ghc-version: "9.2.2"
+            ghc-version: "9.2.4"
           - os: "macos-latest"
             ghc-version: "9.0.1"
 
@@ -57,7 +57,7 @@ jobs:
         cabal user-config update -f -a "executable-stripping: True"
 
     - name: Cache cabal work
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       with:
         path: |
           dist-newstyle
@@ -150,7 +150,7 @@ jobs:
 
     - name: Unit tests
       run: |
-        cabal test --test-show-details=streaming
+        cabal test
 
     - name: Integration tests
       # Integration tests sometimes hang on MacOS 
@@ -187,6 +187,12 @@ jobs:
           exit 1
         fi
         pandoc-plot clean tests/issue46.md
+        
+        pandoc --filter pandoc-plot -i tests/issue53.md -t native
+        if [ $(ls "plots" | wc -l) != 2 ]; then
+          exit 1
+        fi
+        pandoc-plot clean tests/issue53.md
     
     - name: Build documentation
       run: source tools/mkmanual.sh
