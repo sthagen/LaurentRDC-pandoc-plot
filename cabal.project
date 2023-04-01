@@ -1,3 +1,7 @@
 packages: pandoc-plot.cabal
 
 test-show-details: streaming
+
+jobs: $ncpus
+
+allow-newer: haddock-library:base,
