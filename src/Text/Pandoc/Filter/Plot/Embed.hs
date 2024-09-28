@@ -17,7 +17,6 @@ module Text.Pandoc.Filter.Plot.Embed
 where
 
 import Data.Default (def)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text, pack)
 import qualified Data.Text.IO as T
 import Text.HTML.TagSoup
@@ -63,11 +62,19 @@ toFigure fmt spec = do
   target <- figurePath spec
   scp <- pack <$> sourceCodePath spec
   sourceLabel <- asksConfig sourceCodeLabel -- Allow the possibility for non-english labels
+
+  cap <- case (captionReader fmt $ caption spec) of
+    Left exc -> do
+      err $ "Unable to parse caption: " <> (pack $ show exc)
+      pure mempty
+    Right c -> do
+      debug $ "Parsed caption: " <> (pack $ show c)
+      pure $ fromList c
+  
   let srcLink = link scp mempty (str sourceLabel)
       attrs' = blockAttrs spec
-      captionText = fromList $ fromMaybe mempty (captionReader fmt $ caption spec)
       captionLinks = mconcat [" (", srcLink, ")"]
-      caption' = if withSource spec then captionText <> captionLinks else captionText
+      caption' = if withSource spec then cap <> captionLinks else cap
   builder attrs' target caption'
   where
     builder = case saveFormat spec of
@@ -82,11 +89,15 @@ figure ::
   PlotM Block
 figure as fp caption' =
   return . head . toList $
-    -- We want the attributes both on the Figure element and the contained Image element
-    -- so that pandoc-plot plays nice with pandoc-crossref and other filters
-    figureWith as (simpleCaption (plain caption')) $
-      plain $
-        imageWith mempty (pack fp) mempty caption'
+    if null caption'
+      -- If there is no caption, a LaTeX figure may look strange. See #37
+      then plain $ imageWith as (pack fp) mempty caption'
+      else 
+        -- We want the attributes both on the Figure element and the contained Image element
+        -- so that pandoc-plot plays nice with pandoc-crossref and other filters
+        figureWith as (simpleCaption (plain caption')) $
+          plain $
+            imageWith as (pack fp) mempty caption'
 
 -- TODO: also add the case where SVG plots can be
 --       embedded in HTML output
@@ -111,19 +122,22 @@ figure as fp caption' =
 --     |]
 
 latexInput :: Attr -> FilePath -> Inlines -> PlotM Block
-latexInput _ fp caption' = do
+latexInput (_, _, attrs) fp caption' = do
   renderedCaption' <- writeLatex caption'
   let renderedCaption =
         if renderedCaption' /= ""
           then [st|\caption{#{renderedCaption'}}|]
           else ""
+  -- We need to propagate extra attributes, for example, to control
+  -- figure sizes. See #38
+  let renderedExtraAttributes = mconcat $ [key <> "=" <> value | (key, value) <- attrs]
   return $
     RawBlock
       "latex"
       [st|
     \begin{figure}
         \centering
-        \input{#{pack $ normalizePath $ fp}}
+        \includegraphics[#{renderedExtraAttributes}]{#{pack $ normalizePath $ fp}}
         #{renderedCaption}
     \end{figure}
         |]
